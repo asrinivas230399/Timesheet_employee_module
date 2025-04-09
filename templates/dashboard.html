@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Dashboard</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:focus {
+            outline: 2px solid blue;
+        }
+    </style>
+</head>
+<body>
+    <h1>Employee Dashboard</h1>
+    <table role="table" aria-label="Employee Dashboard">
+        <thead>
+            <tr>
+                <th role="columnheader" scope="col">ID</th>
+                <th role="columnheader" scope="col">Name</th>
+                <th role="columnheader" scope="col">Position</th>
+                <th role="columnheader" scope="col">Status</th>
+                <th role="columnheader" scope="col">Projects</th>
+                <th role="columnheader" scope="col">Workday Duration</th>
+                <th role="columnheader" scope="col">Hourly Rate</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for employee in employees %}
+            <tr tabindex="0" role="row">
+                <td role="cell">{{ employee.id }}</td>
+                <td role="cell">{{ employee.name }}</td>
+                <td role="cell">{{ employee.position }}</td>
+                <td role="cell">{{ employee.status }}</td>
+                <td role="cell">{{ ", ".join(employee.projects) }}</td>
+                <td role="cell">{{ employee.workday_duration }} hours</td>
+                <td role="cell">${{ employee.hourly_rate }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <a href="/feedback">Submit Feedback</a>
+</body>
+</html>
