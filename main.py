@@ -1,58 +1,34 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import padding
-import os
-import logging
-from role_based_access_control import RoleBasedAccessControl
-from audit_trail import AuditTrail
+from services.user_service import get_all_users, delete_user, log_activity, generate_dashboard, export_cost_data
 
-# Initialize FastAPI app
-app = FastAPI()
+def main():
+    # Example usage
+    try:
+        requesting_user_id = int(input("Enter your user ID: "))
 
-# Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    filename='access.log',
-                    filemode='a')
+        print("All users:")
+        for user in get_all_users(requesting_user_id):
+            print(user)
 
-# Initialize Role-Based Access Control
-rbac = RoleBasedAccessControl()
+        # Delete a user
+        user_id_to_delete = int(input("Enter the user ID to delete: "))
+        delete_user(requesting_user_id, user_id_to_delete)
 
-# Define Pydantic models
-class EncryptionRequest(BaseModel):
-    data: str
-    key: str
-    role: str
+        # Log an admin action
+        log_activity("Deleted a user", requesting_user_id)
 
-class DecryptionRequest(BaseModel):
-    encrypted_data: str
-    key: str
-    role: str
+        # Generate dashboard
+        generate_dashboard(requesting_user_id)
 
-# Encryption endpoint
-@app.post("/encrypt")
-async def encrypt_data(request: EncryptionRequest):
-    if not rbac.has_permission(request.role, 'encrypt'):
-        AuditTrail.log_access(request.role, 'encrypt - denied')
-        raise HTTPException(status_code=403, detail="Permission denied.")
-    
-    AuditTrail.log_access(request.role, 'encrypt')
-    key_bytes = request.key.encode()
-    data_bytes = request.data.encode()
-    encrypted_data = encrypt(data_bytes, key_bytes)
-    return {"encrypted_data": encrypted_data.hex()}
+        # Export cost data
+        export_format = input("Enter export format (csv/json): ")
+        export_cost_data(export_format)
 
-# Decryption endpoint
-@app.post("/decrypt")
-async def decrypt_data(request: DecryptionRequest):
-    if not rbac.has_permission(request.role, 'decrypt'):
-        AuditTrail.log_access(request.role, 'decrypt - denied')
-        raise HTTPException(status_code=403, detail="Permission denied.")
-    
-    AuditTrail.log_access(request.role, 'decrypt')
-    key_bytes = request.key.encode()
-    encrypted_data_bytes = bytes.fromhex(request.encrypted_data)
-    decrypted_data = decrypt(encrypted_data_bytes, key_bytes)
-    return {"data": decrypted_data.decode()}
+    except PermissionError as e:
+        print(f"Permission Error: {e}")
+    except ValueError as e:
+        print(f"Value Error: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+if __name__ == "__main__":
+    main()

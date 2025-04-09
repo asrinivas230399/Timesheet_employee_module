@@ -1,18 +1,14 @@
-from models.role import Role
+from sqlalchemy import Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
 
-class User:
-    def __init__(self, username: str):
-        self.username = username
-        self.roles = set()
+Base = declarative_base()
 
-    def add_role(self, role: Role):
-        self.roles.add(role)
+class User(Base):
+    __tablename__ = 'users'
+    user_id = Column(Integer, primary_key=True)
+    name = Column(String)
+    role = Column(String)
+    access_level = Column(String)
 
-    def remove_role(self, role: Role):
-        self.roles.discard(role)
-
-    def has_role(self, role: Role) -> bool:
-        return role in self.roles
-
-    def has_permission(self, permission) -> bool:
-        return any(role.has_permission(permission) for role in self.roles)
+    def __repr__(self):
+        return f"User(id={self.user_id}, name={self.name}, role={self.role}, access_level={self.access_level})"
