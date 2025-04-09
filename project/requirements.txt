@@ -1,3 +1,2 @@
-fastapi
-sqlalchemy
-httpx  # For asynchronous HTTP requests
+Flask
+cryptography
