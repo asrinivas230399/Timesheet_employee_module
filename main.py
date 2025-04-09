@@ -1,34 +1,180 @@
-from services.user_service import get_all_users, delete_user, log_activity, generate_dashboard, export_cost_data
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+from jose import JWTError, jwt
+from typing import List, Optional
+import logging
 
-def main():
-    # Example usage
+from . import models
+from .database import SessionLocal, engine
+from .models import Employee
+
+app = FastAPI()
+
+models.Base.metadata.create_all(bind=engine)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+credentials_exception = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+
+# Mock function to get user roles
+# In a real application, this should query the database or another service
+user_roles = {
+    "admin": ["read", "write"],
+    "user": ["read"]
+}
+
+def get_user_roles(username: str):
+    return user_roles.get(username, [])
+
+# Middleware to check if the user has the required role
+async def role_required(role: str, token: str = Depends(oauth2_scheme)):
     try:
-        requesting_user_id = int(input("Enter your user ID: "))
+        payload = jwt.decode(token, "secret", algorithms=["HS256"])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        roles = get_user_roles(username)
+        if role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not enough permissions",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except JWTError:
+        raise credentials_exception
 
-        print("All users:")
-        for user in get_all_users(requesting_user_id):
-            print(user)
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    token = request.headers.get("Authorization")
+    if token:
+        try:
+            payload = jwt.decode(token.split()[1], "secret", algorithms=["HS256"])
+            request.state.user = payload.get("sub")
+        except JWTError:
+            raise credentials_exception
+    else:
+        raise credentials_exception
+    response = await call_next(request)
+    return response
 
-        # Delete a user
-        user_id_to_delete = int(input("Enter the user ID to delete: "))
-        delete_user(requesting_user_id, user_id_to_delete)
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
-        # Log an admin action
-        log_activity("Deleted a user", requesting_user_id)
+@app.get("/employees", response_model=List[models.Employee])
+async def get_employees(
+    name: Optional[str] = None,
+    role: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("read"))
+):
+    query = db.query(Employee)
+    
+    if name:
+        query = query.filter(Employee.name == name)
+    if role:
+        query = query.filter(Employee.role == role)
+    if status:
+        query = query.filter(Employee.status == status)
+    
+    employees = query.all()
+    logging.info(f"Retrieved {len(employees)} employees")
+    return employees
 
-        # Generate dashboard
-        generate_dashboard(requesting_user_id)
+@app.get("/employees/{employee_id}", response_model=models.Employee)
+async def get_employee(employee_id: int, db: Session = Depends(SessionLocal)):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    logging.info(f"Retrieved employee with id {employee_id}")
+    return employee
 
-        # Export cost data
-        export_format = input("Enter export format (csv/json): ")
-        export_cost_data(export_format)
+@app.put("/employees/edit/{employee_id}", response_model=models.Employee)
+async def edit_employee(
+    employee_id: int,
+    employee_data: models.EmployeeEdit,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    for key, value in employee_data.dict(exclude_unset=True).items():
+        setattr(employee, key, value)
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated employee with id {employee_id}")
+    return employee
 
-    except PermissionError as e:
-        print(f"Permission Error: {e}")
-    except ValueError as e:
-        print(f"Value Error: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+@app.put("/employees/update-login/{employee_id}", response_model=models.Employee)
+async def update_employee_login(
+    employee_id: int,
+    login_data: models.EmployeeLoginUpdate,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    employee.username = login_data.username
+    employee.password = login_data.password  # In a real application, ensure to hash the password
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated login for employee with id {employee_id}")
+    return employee
 
-if __name__ == "__main__":
-    main()
+@app.put("/employees/update-contact/{employee_id}", response_model=models.Employee)
+async def update_employee_contact(
+    employee_id: int,
+    contact_data: models.EmployeeContactUpdate,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    employee.email = contact_data.email
+    employee.phone = contact_data.phone
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated contact for employee with id {employee_id}")
+    return employee
+
+@app.put("/employees/update-terms/{employee_id}", response_model=models.Employee)
+async def update_employee_terms(
+    employee_id: int,
+    terms_data: models.EmployeeTermsUpdate,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    employee.workday_duration = terms_data.workday_duration
+    employee.hourly_rate = terms_data.hourly_rate
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated terms for employee with id {employee_id}")
+    return employee
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

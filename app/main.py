@@ -1,53 +1,166 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from . import models, schemas, crud, auth
+from jose import JWTError, jwt
+from typing import List, Optional
+import logging
+
+from . import models
 from .database import SessionLocal, engine
-from datetime import timedelta
-from .middleware import AuditMiddleware
+from .models import Employee
+
+app = FastAPI()
 
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Financial System API", description="API for financial systems communication.", version="1.0.0")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Add middleware
-app.add_middleware(AuditMiddleware)
+credentials_exception = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+)
 
-# Dependency
-def get_db():
-    db = SessionLocal()
+# Mock function to get user roles
+# In a real application, this should query the database or another service
+user_roles = {
+    "admin": ["read", "write"],
+    "user": ["read"]
+}
+
+def get_user_roles(username: str):
+    return user_roles.get(username, [])
+
+# Middleware to check if the user has the required role
+async def role_required(role: str, token: str = Depends(oauth2_scheme)):
     try:
-        yield db
-    finally:
-        db.close()
+        payload = jwt.decode(token, "secret", algorithms=["HS256"])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        roles = get_user_roles(username)
+        if role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not enough permissions",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except JWTError:
+        raise credentials_exception
 
-@app.post("/token", response_model=schemas.Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = auth.authenticate_user(auth.fake_users_db, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = auth.create_access_token(
-        data={"sub": user["username"]}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
-@app.post("/transactions/", response_model=schemas.Transaction, summary="Create a new transaction", description="Create a new financial transaction.")
-def create_transaction(transaction: schemas.TransactionCreate, db: Session = Depends(get_db), current_user: dict = Depends(auth.get_current_active_user)):
-    db_transaction = crud.create_transaction(db=db, transaction=transaction)
-    return db_transaction
+@app.get("/employees", response_model=List[models.Employee])
+async def get_employees(
+    name: Optional[str] = None,
+    role: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("read"))
+):
+    query = db.query(Employee)
+    
+    if name:
+        query = query.filter(Employee.name == name)
+    if role:
+        query = query.filter(Employee.role == role)
+    if status:
+        query = query.filter(Employee.status == status)
+    
+    employees = query.all()
+    logging.info(f"Retrieved {len(employees)} employees")
+    return employees
 
-@app.get("/transactions/{transaction_id}", response_model=schemas.Transaction, summary="Get a transaction by ID", description="Retrieve a transaction's details by its ID.")
-def read_transaction(transaction_id: int, db: Session = Depends(get_db), current_user: dict = Depends(auth.get_current_active_user)):
-    db_transaction = crud.get_transaction(db, transaction_id=transaction_id)
-    if db_transaction is None:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    return db_transaction
+@app.get("/employees/{employee_id}", response_model=models.Employee)
+async def get_employee(employee_id: int, db: Session = Depends(SessionLocal)):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    logging.info(f"Retrieved employee with id {employee_id}")
+    return employee
 
-@app.get("/transactions/", response_model=list[schemas.Transaction], summary="List transactions", description="Retrieve a list of transactions with pagination support.")
-def read_transactions(skip: int = 0, limit: int = 10, db: Session = Depends(get_db), current_user: dict = Depends(auth.get_current_active_user)):
-    transactions = crud.get_transactions(db, skip=skip, limit=limit)
-    return transactions
+@app.put("/employees/edit/{employee_id}", response_model=models.Employee)
+async def edit_employee(
+    employee_id: int,
+    employee_data: models.EmployeeEdit,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    for key, value in employee_data.dict(exclude_unset=True).items():
+        setattr(employee, key, value)
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated employee with id {employee_id}")
+    return employee
+
+@app.put("/employees/update-login/{employee_id}", response_model=models.Employee)
+async def update_employee_login(
+    employee_id: int,
+    login_data: models.EmployeeLoginUpdate,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    employee.username = login_data.username
+    employee.password = login_data.password  # In a real application, ensure to hash the password
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated login for employee with id {employee_id}")
+    return employee
+
+@app.put("/employees/update-contact/{employee_id}", response_model=models.Employee)
+async def update_employee_contact(
+    employee_id: int,
+    contact_data: models.EmployeeContactUpdate,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    employee.email = contact_data.email
+    employee.phone = contact_data.phone
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated contact for employee with id {employee_id}")
+    return employee
+
+@app.put("/employees/update-terms/{employee_id}", response_model=models.Employee)
+async def update_employee_terms(
+    employee_id: int,
+    terms_data: models.EmployeeTermsUpdate,
+    db: Session = Depends(SessionLocal),
+    _: str = Depends(lambda: role_required("write"))
+):
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not employee:
+        logging.warning(f"Employee with id {employee_id} not found")
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    employee.workday_duration = terms_data.workday_duration
+    employee.hourly_rate = terms_data.hourly_rate
+    
+    db.commit()
+    db.refresh(employee)
+    logging.info(f"Updated terms for employee with id {employee_id}")
+    return employee
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
