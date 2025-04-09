@@ -1,42 +1,41 @@
-class RoleBasedAccessControl:
-    def __init__(self):
-        # Define roles and their permissions
-        self.roles_permissions = {
-            'admin': ['encrypt', 'decrypt', 'manage_users'],
-            'user': ['encrypt', 'decrypt'],
-            'guest': []
-        }
-        
-    def has_permission(self, role: str, permission: str) -> bool:
-        """
-        Check if a role has a specific permission.
-        :param role: The role to check.
-        :param permission: The permission to check for.
-        :return: True if the role has the permission, False otherwise.
-        """
-        return permission in self.roles_permissions.get(role, [])
+import logging
 
-    def add_role(self, role: str, permissions: list):
-        """
-        Add a new role with specific permissions.
-        :param role: The role to add.
-        :param permissions: A list of permissions for the role.
-        """
-        self.roles_permissions[role] = permissions
+# Setup logging
+logging.basicConfig(filename='access.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 
-    def remove_role(self, role: str):
-        """
-        Remove a role from the system.
-        :param role: The role to remove.
-        """
-        if role in self.roles_permissions:
-            del self.roles_permissions[role]
+def is_authorized(role):
+    # Mock authorization check
+    authorized_roles = ['finance_team', 'admin']
+    return role in authorized_roles
 
-    def update_permissions(self, role: str, permissions: list):
-        """
-        Update permissions for an existing role.
-        :param role: The role to update.
-        :param permissions: A new list of permissions for the role.
-        """
-        if role in self.roles_permissions:
-            self.roles_permissions[role] = permissions
+def define_roles():
+    # Define roles and their permissions
+    roles_permissions = {
+        'finance_team': ['view_budget', 'edit_budget'],
+        'admin': ['view_budget', 'edit_budget', 'manage_users'],
+        'guest': ['view_budget'],
+    }
+    return roles_permissions
+
+def check_access(role, permission):
+    roles_permissions = define_roles()
+    if role in roles_permissions:
+        access_granted = permission in roles_permissions[role]
+        # Log the access attempt
+        logging.info(f"Role '{role}' attempted to access '{permission}': {'Granted' if access_granted else 'Denied'}")
+        return access_granted
+    # Log the access attempt
+    logging.info(f"Role '{role}' attempted to access '{permission}': Denied")
+    return False
+
+def audit_access_log():
+    # Function to audit access logs
+    with open('access.log', 'r') as log_file:
+        logs = log_file.readlines()
+        # Process logs for auditing
+        for log in logs:
+            print(log.strip())
+
+# Example usage of audit
+if __name__ == "__main__":
+    audit_access_log()
