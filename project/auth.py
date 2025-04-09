@@ -1,3 +1,5 @@
+# auth.py
+
 def authenticate_user(user_credentials):
     # Placeholder for user authentication logic
     pass

@@ -1,3 +1,5 @@
+# database.py
+
 def get_user(username):
     # Placeholder for retrieving a user from the database
     return {'username': username, 'roles': []}
