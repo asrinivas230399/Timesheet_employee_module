@@ -1,17 +1,20 @@
-from pydantic import BaseModel
-from typing import Optional
+from src.models.role import Role
 
-class EmployeeBase(BaseModel):
-    first_name: str
-    last_name: str
-    email: str
-    position: str
+class Employee:
+    def __init__(self, employee_id, name, contact_details, role, project_assignments):
+        self.employee_id = employee_id
+        self.name = name
+        self.contact_details = contact_details
+        self.role = role  # This should be an instance of Role
+        self.project_assignments = project_assignments
 
-class EmployeeCreate(EmployeeBase):
-    pass
+    def update_role(self, new_role):
+        if isinstance(new_role, Role):
+            self.role = new_role
+            print(f"Role updated to {self.role}")
+        else:
+            print("Invalid role provided")
 
-class EmployeeInDB(EmployeeBase):
-    id: int
-
-    class Config:
-        orm_mode = True
+    def update_project_assignments(self, new_project_assignments):
+        self.project_assignments = new_project_assignments
+        print(f"Project assignments updated to {self.project_assignments}")
