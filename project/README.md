@@ -1,41 +1,23 @@
-# Employee Dashboard
+# Project Title
 
-This project is a web application for displaying employee data and collecting feedback. It is built using FastAPI and Jinja2 for templating.
+## Description
 
-## Features
-
-- Display employee data with filters for name, position, and status.
-- Submit feedback through a form.
-- Load testing using Locust.
+This project is a FastAPI application that synchronizes data with a project management tool.
 
 ## Setup
 
 1. Install dependencies:
-
    ```bash
    pip install -r requirements.txt
    ```
 
 2. Run the application:
-
    ```bash
    uvicorn app.main:app --reload
    ```
 
-3. Access the application at `http://localhost:8000/employees`.
+## Features
 
-## Load Testing
-
-To run load tests, use Locust:
-
-```bash
-locust -f app/locustfile.py
-```
-
-## Feedback
-
-Feedback can be submitted through the `/feedback` endpoint.
-
-## Review
-
-This interface is ready for review by the PMO Team and Managers. Please provide feedback through the feedback form or contact the development team directly.
+- Fetches employee roles and project assignments from the database.
+- Validates data integrity.
+- Updates a project management tool using an API.

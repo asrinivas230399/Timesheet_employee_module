@@ -1,70 +1,58 @@
-from fastapi import FastAPI, Query, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from app.employee_data import fetch_employee_data, edit_employee_record
-import uvicorn
+from fastapi import FastAPI, HTTPException, Depends
+from sqlalchemy import event
+import logging
+from .sync_service import SyncService
+from .models import SomeModel
+from .db_connection import DBConnection
+from .acl_service import ACLService
 
 app = FastAPI()
-templates = Jinja2Templates(directory="app/templates")
 
-@app.get("/employees", response_class=HTMLResponse)
-async def get_employees(request: Request, name: str = Query(None), role: str = Query(None), status: str = Query(None)):
-    employees = fetch_employee_data()
-    if name:
-        name = name.lower()
-        employees = [emp for emp in employees if name in emp['name'].lower()]
-    if role:
-        role = role.lower()
-        employees = [emp for emp in employees if role == emp['position'].lower()]
-    if status:
-        status = status.lower()
-        employees = [emp for emp in employees if status == emp['status'].lower()]
-    return templates.TemplateResponse("dashboard.html", {"request": request, "employees": employees})
+# Example database URL
+DATABASE_URL = "sqlite:///./test.db"
 
-@app.post("/edit_employee")
-async def edit_employee(employee_id: int = Form(...), name: str = Form(None), position: str = Form(None), status: str = Form(None), projects: str = Form(None), workday_duration: int = Form(None), hourly_rate: float = Form(None)):
-    if hourly_rate is not None and hourly_rate < 0:
-        raise HTTPException(status_code=400, detail="Hourly rate cannot be negative.")
-    if workday_duration is not None and (workday_duration < 0 or workday_duration > 24):
-        raise HTTPException(status_code=400, detail="Workday duration must be between 0 and 24 hours.")
-    
-    projects_list = projects.split(',') if projects else None
-    updated_employee = edit_employee_record(employee_id, name=name, position=position, status=status, projects=projects_list, workday_duration=workday_duration, hourly_rate=hourly_rate)
-    if updated_employee:
-        return {"message": "Employee record updated successfully!", "employee": updated_employee}
-    raise HTTPException(status_code=404, detail="Employee not found!")
+# Initialize DBConnection
+db_connection = DBConnection(DATABASE_URL)
 
-@app.get("/add_employee", response_class=HTMLResponse)
-async def add_employee_form(request: Request):
-    return templates.TemplateResponse("add_employee.html", {"request": request})
+# Initialize SyncService
+sync_service = SyncService(db_connection.get_session())
 
-@app.post("/add_employee")
-async def add_employee(name: str = Form(...), position: str = Form(...), status: str = Form(...), projects: str = Form(...), workday_duration: int = Form(...), hourly_rate: float = Form(...)):
-    new_employee = {
-        'id': len(fetch_employee_data()) + 1,
-        'name': name,
-        'position': position,
-        'status': status,
-        'projects': projects.split(','),
-        'workday_duration': workday_duration,
-        'hourly_rate': hourly_rate
-    }
-    print(f"New employee added: {new_employee}")
-    return {"message": "New employee added successfully!", "employee": new_employee}
+# Initialize ACLService
+acl_service = ACLService("https://api.aclservice.com")
 
-@app.get("/feedback", response_class=HTMLResponse)
-async def feedback_form(request: Request):
-    return templates.TemplateResponse("feedback.html", {"request": request})
+# Event listener for database changes
+def after_insert_listener(mapper, connection, target):
+    logging.info("Database insert detected, triggering synchronization.")
+    sync_service.synchronize()
 
-@app.post("/feedback")
-async def submit_feedback(name: str = Form(...), feedback: str = Form(...)):
-    if not name.strip():
-        raise HTTPException(status_code=400, detail="Name cannot be empty.")
-    if not feedback.strip():
-        raise HTTPException(status_code=400, detail="Feedback cannot be empty.")
-    
-    print(f"Feedback received from {name}: {feedback}")
-    return {"message": "Thank you for your feedback!"}
+# Register the event listener
+event.listen(SomeModel, 'after_insert', after_insert_listener)
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Configure logging
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler("sync_service.log"),
+                        logging.StreamHandler()
+                    ])
+
+async def get_current_user():
+    # Placeholder for getting the current user
+    return "user_id"
+
+async def authorize_user(action: str, user_id: str = Depends(get_current_user)):
+    is_authorized = await acl_service.is_user_authorized(user_id, action)
+    if not is_authorized:
+        logging.warning(f"Unauthorized access attempt by user {user_id} for action {action}.")
+        raise HTTPException(status_code=403, detail="Not authorized to perform this action.")
+    logging.info(f"User {user_id} authorized for action {action}.")
+
+@app.get("/secure-data", dependencies=[Depends(authorize_user("view_secure_data"))])
+async def get_secure_data():
+    logging.info("Secure data accessed.")
+    return {"data": "This is secure data."}
+
+@app.post("/modify-data", dependencies=[Depends(authorize_user("modify_data"))])
+async def modify_data():
+    logging.info("Data modification requested.")
+    return {"status": "Data modified successfully."}

@@ -1,4 +1,3 @@
 fastapi
-uvicorn
-jinja2
-locust
+sqlalchemy
+httpx  # For asynchronous HTTP requests

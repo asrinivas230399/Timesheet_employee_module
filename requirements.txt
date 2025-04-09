@@ -1,4 +1,5 @@
 fastapi
+sqlalchemy
+httpx
 uvicorn
-jinja2
-locust
+requests

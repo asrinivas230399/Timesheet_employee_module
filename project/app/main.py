@@ -1,35 +1,27 @@
-from fastapi import FastAPI, Query, Request, Form
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from employee_data import fetch_employee_data
-import uvicorn
+from fastapi import FastAPI
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+from .sync_service import SyncService
+from .models import SomeModel  # Import your SQLAlchemy models here
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
 
-@app.get("/employees", response_class=HTMLResponse)
-async def get_employees(request: Request, name: str = Query(None), role: str = Query(None), status: str = Query(None)):
-    employees = fetch_employee_data()
-    if name:
-        name = name.lower()
-        employees = [emp for emp in employees if name in emp['name'].lower()]
-    if role:
-        role = role.lower()
-        employees = [emp for emp in employees if role == emp['position'].lower()]
-    if status:
-        status = status.lower()
-        employees = [emp for emp in employees if status == emp['status'].lower()]
-    return templates.TemplateResponse("dashboard.html", {"request": request, "employees": employees})
+# Example database URL
+DATABASE_URL = "sqlite:///./test.db"
 
-@app.get("/feedback", response_class=HTMLResponse)
-async def feedback_form(request: Request):
-    return templates.TemplateResponse("feedback.html", {"request": request})
+# Optimize connection pooling
+engine = create_engine(DATABASE_URL, pool_size=20, max_overflow=0)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-@app.post("/feedback")
-async def submit_feedback(name: str = Form(...), feedback: str = Form(...)):
-    # Handle the feedback, e.g., save it to a database or send it via email
-    print(f"Feedback received from {name}: {feedback}")
-    return {"message": "Thank you for your feedback!"}
+# Initialize SyncService
+sync_service = SyncService(SessionLocal())
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Event listener for database changes
+def after_insert_listener(mapper, connection, target):
+    # Trigger synchronization after an insert operation
+    sync_service.synchronize()
+
+# Register the event listener
+event.listen(SomeModel, 'after_insert', after_insert_listener)
+
+# Define your models and other FastAPI routes here
