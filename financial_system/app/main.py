@@ -3,14 +3,10 @@ from sqlalchemy.orm import Session
 from . import models, schemas, crud, auth
 from .database import SessionLocal, engine
 from datetime import timedelta
-from .middleware import AuditMiddleware
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Financial System API", description="API for financial systems communication.", version="1.0.0")
-
-# Add middleware
-app.add_middleware(AuditMiddleware)
 
 # Dependency
 def get_db():
